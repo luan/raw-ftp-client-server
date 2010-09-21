@@ -1,0 +1,4 @@
+h1. Redes I
+
+Esse trabalho é para a disciplida de Redes de Computadores I, segundo semestre
+de 2010. Se você copiar isso e eu me ferrar provavelmente eu vou ficar brabo.
