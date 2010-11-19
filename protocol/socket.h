@@ -19,5 +19,7 @@
 #include <dirent.h>
 #include <string.h>
 
+#define MESSAGE_MAX_SIZE 257
+
 int socket_create(char* device);
 #endif

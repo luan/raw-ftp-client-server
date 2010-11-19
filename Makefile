@@ -1,6 +1,5 @@
 all: c s
 	
-
 c:
 	make -C client
 
