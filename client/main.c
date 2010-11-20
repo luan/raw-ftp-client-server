@@ -1,9 +1,13 @@
 #include "client.h"
+#include <stdio.h>
 
 int main (int argc, char const* argv[]) {
-    int server_socket = socket_create("lo");
+    t_socket server_socket = socket_create("lo");
     char buffer[1024];
     scanf("%s", buffer);
-    send(server_socket, buffer, 1023, 0);
+    send_message(&server_socket, 'L', buffer);
+    t_message oi = receive(&server_socket);
+    oi = receive(&server_socket);
+    printf("'%s'\n", oi.data);
     return 0;
 }

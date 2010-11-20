@@ -18,8 +18,20 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <string.h>
+#include "protocol.h"
 
 #define MESSAGE_MAX_SIZE 257
 
-int socket_create(char* device);
+typedef struct {
+    int socket;
+    unsigned sequence:8;
+} t_socket;
+
+t_socket socket_create(char* device);
+char *generate_packet(t_message *message);
+unsigned char get_parity(const char *data, int size);
+t_message receive(t_socket *connection);
+void send_message(t_socket *connection, const char type, const char *message);
+void send_raw_data(t_socket *connection, const void *data, int size);
+int recv_data(t_socket *connection, char *buffer);
 #endif
