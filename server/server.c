@@ -21,12 +21,13 @@ void respond_ls(t_socket *connection, t_message packet) {
     strncpy(params, packet.data, packet.size - 3);
     params[packet.size - 3] = '\0';
     int size = 16;
-    char *output = (char *) malloc(sizeof(char) * size);
 
     if ((dp = opendir(params)) == NULL) {
-        fprintf(stderr, "can't open '%s'\n", params);
-        exit(1);
+        text_message(connection, 'X', "fail");
+        return;
     }
+
+    char *output = (char *) malloc(sizeof(char) * size);
 
     while ((dirp = readdir(dp)) != NULL) {
         if ((strlen(output) + strlen(dirp->d_name) + 2) > size)
