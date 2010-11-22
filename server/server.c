@@ -23,7 +23,7 @@ void respond_ls(t_socket *connection, t_message packet) {
     int size = 16;
     char *output = (char *) malloc(sizeof(char) * size);
 
-    if ((dp = opendir(params)) == NULL ) {
+    if ((dp = opendir(params)) == NULL) {
         fprintf(stderr, "can't open '%s'\n", params);
         exit(1);
     }
@@ -37,6 +37,6 @@ void respond_ls(t_socket *connection, t_message packet) {
 
     closedir(dp);
 
-    send_message(connection, 'X', output);
+    text_message(connection, 'X', output);
     free(output);
 }

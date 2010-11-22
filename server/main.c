@@ -1,7 +1,7 @@
 #include "server.h"
 
 int main (int argc, char const* argv[]) {
-    t_socket server_socket = socket_create("lo");
+    t_socket server_socket = socket_create("lo", 5);
     printf("server on\n");
     t_message packet;
     packet = receive(&server_socket);
