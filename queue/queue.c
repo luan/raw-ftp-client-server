@@ -5,6 +5,7 @@ t_queue *queue_new() {
     t_queue *q = (t_queue *) malloc(sizeof(t_queue));
     t_message value;
     value.begin = 0;
+    q->value = value;
     return q;
 }
 
@@ -36,23 +37,25 @@ int has_element(t_queue *q, unsigned char sequence) {
     return 0;
 }
 
-t_message dequeue_until(t_queue **q, unsigned char sequence) {
+unsigned char dequeue_until(t_queue **q, unsigned char sequence) {
     if (queue_size(*q) < 1)
-        return (*q)->value;
+        return 0;
+    unsigned char i = 0;
 
     t_message message;
     do {
         message = dequeue(q);
+        i++;
     } while(sequence != message.sequence);
 
-    return message;
+    return i;
 }
 
 int queue_size(t_queue *q) {
     t_queue *e;
     int i = 0;
     for (e = q; e && e->value.begin != 0; e = e->next, i++);
-    return i;
+    return --i;
 }
 
 int empty(t_queue *q) {

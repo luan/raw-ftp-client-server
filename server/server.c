@@ -27,13 +27,15 @@ void respond_ls(t_socket *connection, t_message packet) {
         return;
     }
 
-    char *output = (char *) malloc(sizeof(char) * size);
+    char *output = (char *) calloc(sizeof(char), size);
 
     while ((dirp = readdir(dp)) != NULL) {
-        if ((strlen(output) + strlen(dirp->d_name) + 2) > size)
+        while (strlen(output) + strlen(dirp->d_name) + 2 > size)
             output = realloc(output, size *= 2);
-        strcpy(output + strlen(output), dirp->d_name);
-        output = strcat(output, "\n");
+
+        sprintf(output, "%s%s\n", output, dirp->d_name);
+//        strcpy(output + strlen(output), dirp->d_name);
+ //       output = strcat(output, "\n");
     }
 
     closedir(dp);

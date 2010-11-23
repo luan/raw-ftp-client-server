@@ -1,5 +1,5 @@
 CC=gcc
-FLAGS=-Wall
+FLAGS=-Wall -ggdb
 CLIENT_EXEC=bin/client
 SERVER_EXEC=bin/server
 CLIENT_CFILES=client/main.c client/client.c protocol/socket.c queue/queue.c

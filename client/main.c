@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 int main (int argc, char const* argv[]) {
-    t_socket server_socket = socket_create("lo", 10);
+    t_socket server_socket = socket_create("eth0", 10);
     char buffer[1024];
     while (1) {
         printf(" > ");

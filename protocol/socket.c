@@ -42,11 +42,12 @@ t_socket socket_create(const char* device, const unsigned char window_size) {
     s.window_size = window_size;
     s.queue = queue_new();
     s.sequence = 0;
+    s.index = 0;
 
     int i;
 
     for (i = 0; i < 256; i++) {
-        s.messages_confirmation[i] = 0;
+        s.recv[i].begin = 0;
     }
     return s;
 }
@@ -76,7 +77,6 @@ int timeoutable_recv(t_socket *connection, char *data, unsigned timeout_secs) {
     timeout.tv_sec = timeout_secs;
     timeout.tv_usec = 0;
 
-
     FD_ZERO(&rfds);
     FD_SET(connection->socket, &rfds);
 
@@ -99,10 +99,8 @@ t_message create_message(const char *data, const unsigned char size, const char 
 
 void enqueue_splited(t_socket *connection, const char *data, const unsigned size, const char type) {
     unsigned i;
-    int j = 0;
 
     for (i = 0; i < size; i += 252) {
-        printf("pedaco %d comeca em %d\n", ++j, i);
         unsigned index = ((size - i) > 252) ? 252 : size - i;
         t_message next = create_message(data + i, index, type);
         enqueue_message(connection, next);
@@ -118,61 +116,147 @@ t_message error_message(unsigned char errno) {
     return message;
 }
 
-void perform_confirmation(t_socket *connection) {
-    unsigned char i, j, ack = 1;
+t_message receive(t_socket *connection) {
+    t_message message;
+    char raw_packet[257];
 
-    printf("[ ");
-    for (i = 0; i < connection->window_size; i++) {
-        unsigned char index = connection->window_index + i;
-        printf("%d ", index);
+    if (connection->recv[connection->window_index].begin) {
+        t_message m = connection->recv[connection->window_index++];
+        return m;
     }
-    printf("]\n");
-    printf("[ ");
-    for (i = 0; i < connection->window_size; i++) {
-        unsigned char index = connection->window_index + i;
-        printf("%d ", connection->messages_confirmation[index]);
-    }
-    printf("]\n");
 
-    for (i = 0; i < connection->window_size; i++) {
-        unsigned char index = connection->window_index + i;
-        if (!connection->messages_confirmation[index]) {
-            for (j = i + 1; j < connection->window_size; j++) {
-                unsigned char index_j = connection->window_index + j;
-                if (connection->messages_confirmation[index_j])
-                    ack = 0;
+    int n = timeoutable_recv(connection, raw_packet, 5);
+
+    if (n < 0) {
+        unsigned char i;
+        t_queue *q = connection->queue;
+
+        for (i = 0; q && q->value.begin && i < connection->window_size; i++, q = q->next) {
+            send_message(connection, q->value);
+        }
+
+        return receive(connection);
+    }
+    else if (n < 5 || ((unsigned char) *raw_packet) != 126){
+        return receive(connection);
+    }
+
+    get_packet(raw_packet, &message);
+
+    if (message.type == 'Y' || message.type == 'N') {
+        unsigned char sequence = (message.type == 'Y') ? message.sequence : message.sequence - 1;
+
+        if (has_element(connection->queue, sequence)) {
+            unsigned char num = 0;
+
+            t_message message;
+            do {
+                message = dequeue(&connection->queue);
+                num++;
+            } while(sequence != message.sequence);
+
+            unsigned char i;
+            t_queue *q = connection->queue;
+
+            for (i = 0; i < connection->window_size; i++) {
+                if (!q->next || !q->value.begin)
+                    return receive(connection);
+                q = q->next;
             }
 
-            break;
+            for (i = 0; q && i < num && q->value.begin; i++, q = q->next) {
+                send_message(connection, q->value);
+            }
         }
+
+        return receive(connection);
     }
 
-    if (ack) {
-        send_ack(connection, connection->window_index + i - 1);
+    if (message.sequence == connection->window_index) {
+        send_ack(connection, message.sequence);
+        connection->window_index++;
+
+        if (message.type == 'A') {
+            char type;
+            unsigned int size;
+            memcpy(&size, message.data, 4);
+            memcpy(&type, message.data + 4, 1);
+
+            if (type == 'X')
+                size++;
+
+            message.type = type;
+            message.data = (char *) malloc(size);
+
+            t_message next;
+            unsigned int i = 0;
+
+            do {
+                next = receive(connection);
+                memcpy(message.data + i, next.data, next.size - 3);
+                i += next.size - 3;
+            } while (next.type != 'B');
+
+            message.data[size - 1] = '\0';
+        }
+
+        return message;
     }
     else {
-        send_nack(connection, connection->window_index + i);
+        unsigned char i;
+        
+        for (i = 0; i < connection->window_size; i++) {
+            unsigned char index = connection->window_index + i;
+
+            if (!connection->recv[index].begin) {
+                send_nack(connection, index);
+                break;
+            }
+        }
+
+        connection->recv[message.sequence] = message;
+        return receive(connection);
     }
 
-    unsigned char before = connection->window_index;
-    connection->window_index += (i - 1);
-    printf("===> %d + %d - 1 = %d\n", before, i, connection->window_index);
-    connection->messages_confirmation[connection->window_index + i - 1] = 2;
-
-    unsigned char k;
-
-    for (k = 0; k < connection->window_index - before; k++) {
-        unsigned char index = before + connection->window_size + k;
-        connection->messages_confirmation[index] = 0;
-        index = before + i;
-        connection->messages_confirmation[index] = 0;
-    }
-
-}
-
-t_message receive(t_socket *connection) {
+    /*
     t_message packet;
     char raw_packet[257];
+
+    printf("%d\n", check_cable(connection));
+    if (!check_cable(connection) && connection->recv[connection->window_index].begin) {
+        printf("cable\n");
+        t_message result = connection->recv[connection->window_index];
+        perform_confirmation(connection);
+
+        if (packet.type == 'A') {
+            int size;
+            char type;
+
+            memcpy(&size, packet.data, 4);
+            memcpy(&type, packet.data + 4, 1);
+
+            if (type == 'X')
+                size++;
+
+            packet.data = calloc(size, 1);
+            int i = 0;
+            t_message next;
+
+            do {
+                next = receive(connection);
+                if (next.type != type) {
+                    continue;
+                }
+                next.size -= 3;
+                memcpy(packet.data + i, next.data, next.size);
+                i += next.size;
+            } while (next.type != 'B');
+
+            packet.size = size + 3;
+            packet.type = type;
+        }
+        return result;
+    }
 
     int n = timeoutable_recv(connection, raw_packet, 5);
 
@@ -186,102 +270,31 @@ t_message receive(t_socket *connection) {
 
     get_packet(raw_packet, &packet);
     
-    if (packet.type == 'Y' || packet.type == 'N') {
-        if (connection->messages_confirmation[packet.sequence] == 1) {
-            connection->messages_confirmation[packet.sequence] = 2;
-            handle_confirmation(connection, packet);
-        }
-        t_message r = receive(connection);
-        return r;
-    }
-
-    if (connection->messages_confirmation[packet.sequence])
+    if (packet.type == 'Y' || packet.type  == 'N') {
+        handle_confirmation(connection, packet);
         return receive(connection);
-
-    if (packet.sequence < connection->window_index && packet.sequence >= (connection->window_index + connection->window_size))
-        return error_message(6);
+    }
 
     if (get_parity(packet.data, packet.size - 3) != packet.parity) {
         send_nack(connection, packet.sequence);
-        printf("nacking\n");
         return receive(connection);
     }
+    
+    connection->recv[packet.sequence] = packet;
+    
+    printf("recv\n");
 
-    connection->sequence = (connection->sequence <= packet.sequence) ? packet.sequence + 1 : connection->sequence;
-    connection->messages_confirmation[packet.sequence] = 1;
+    return receive(connection);
 
-    perform_confirmation(connection);
+    // if (connection->messages_confirmation[packet.sequence])
+    //    return receive(connection);printf("confirmed %d\n", packet.sequence);
 
-    if (packet.type == 'A') {
-        int size;
-        char type;
 
-        memcpy(&size, packet.data, 4);
-        memcpy(&type, packet.data + 4, 1);
-
-        if (type == 'X')
-            size++;
-
-        packet.data = calloc(size, 1);
-        int i = 0;
-        t_message next;
-
-        do {
-            next = receive(connection);
-            if (next.type != type)
-                continue;
-            next.size -= 3;
-            memcpy(packet.data + i, next.data, next.size);
-            i += next.size;
-        } while (next.type != 'B');
-        
-        packet.size = size + 3;
-        packet.type = type;
-    }
-
-    return packet;
+    // if (packet.sequence < connection->window_index && packet.sequence >= (connection->window_index + connection->window_size))
+    //    return error_message(6);*/
 }
 
 void handle_confirmation(t_socket *connection, const t_message packet) {
-    unsigned char next = connection->window_index + connection->window_size;
-    unsigned char aux = 0;
-    if (packet.type == 'N')
-        aux = -1;
-
-    if (empty(connection->queue) || !has_element(connection->queue, packet.sequence + aux))
-        return;
-
-    if (packet.sequence + aux >= 0)
-        dequeue_until(&connection->queue, packet.sequence + aux);
-
-    unsigned char before = connection->window_index;
-    connection->window_index = packet.sequence + 1 + aux;
-
-    unsigned char i;
-
-    for (i = 0; i < connection->window_index - before; i++) {
-        unsigned char index = before + connection->window_size + i;
-        connection->messages_confirmation[index] = 0;
-        index = before + i;
-        connection->messages_confirmation[index] = 0;
-    }
-
-    if (packet.type == 'N') {
-        send_message(connection, connection->queue->value);
-    }
-
-    send_n_messages(connection, next);
-}
-
-void send_n_messages(t_socket *connection, unsigned char initial) {
-    t_queue *q;
-    if (!has_element(connection->queue, initial))
-        return;
-    for (q = connection->queue; q->value.sequence != initial && q->next; q = q->next);
-    for (; q && q->value.begin && q->value.sequence < (connection->window_index + connection->window_size); q = q->next) {
-        if (q->value.type >= 'A' && q->value.type <= 'Z')
-            send_message(connection, q->value);
-    }
 }
 
 unsigned char get_parity(const char *data, int size) {
@@ -322,11 +335,11 @@ void text_message(t_socket *connection, const char type, const char *message) {
 void send_confirmation(t_socket *connection, const unsigned char number, const char type) {
     t_message packet = create_message("", 0, type);
     packet.sequence = number;
+    printf("%c %d\n", type, number);
 
     char *raw_packet = generate_packet(packet);
 
     send_raw_data(connection, raw_packet, 5);
-    printf("C %d\n", number);
     free(raw_packet);
 }
 
@@ -339,8 +352,7 @@ void send_nack(t_socket *connection, const unsigned char number) {
 }
 
 void send_message(t_socket *connection, const t_message message) {
-    printf("send[%d]: %c\n", message.sequence, message.type);
-    connection->messages_confirmation[message.sequence] = 1;
+    printf("send[%03d]: %c\n", message.sequence, message.type);
     char *raw_packet = generate_packet(message);
     send_raw_data(connection, raw_packet, message.size + 2);
     free(raw_packet);

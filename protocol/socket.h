@@ -29,7 +29,8 @@ typedef struct {
     unsigned window_index:8;
     unsigned window_size:8;
     unsigned sequence:8;
-    unsigned char messages_confirmation[256];
+    unsigned index:8;
+    t_message recv[256];
 } t_socket;
 
 t_socket socket_create(const char* device, const unsigned char window_size);
@@ -41,6 +42,7 @@ void send_n_messages(t_socket *connection, unsigned char initial);
 void send_message(t_socket *connection, const t_message message);
 void send_raw_data(t_socket *connection, const void *data, const unsigned int size);
 int recv_data(t_socket *connection, char *buffer);
+void move_window(t_socket *connection);
 void send_ack(t_socket *connection, const unsigned char number);
 void send_nack(t_socket *connection, const unsigned char number);
 void enqueue_message(t_socket *connection, t_message message);
