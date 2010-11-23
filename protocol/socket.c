@@ -100,7 +100,7 @@ t_message create_message(const char *data, const unsigned char size, const char 
 void enqueue_splited(t_socket *connection, const char *data, const unsigned size, const char type) {
     unsigned i;
 
-    for (i = 0; i < size; i += 252) {
+    for (i = 0; i <= size; i += 252) {
         unsigned index = ((size - i) > 252) ? 252 : size - i;
         t_message next = create_message(data + i, index, type);
         enqueue_message(connection, next);
@@ -108,12 +108,7 @@ void enqueue_splited(t_socket *connection, const char *data, const unsigned size
 }
 
 t_message error_message(unsigned char errno) {
-    t_message message;
-    message.type = 'E';
-    message.data = malloc(1);
-    *message.data = errno;
-
-    return message;
+    return create_message((char *) &errno, 1, 'E');
 }
 
 t_message receive(t_socket *connection) {
@@ -142,6 +137,19 @@ t_message receive(t_socket *connection) {
     }
 
     get_packet(raw_packet, &message);
+
+    if (message.type == 'E') {
+        switch ((unsigned char) *message.data) {
+            case 1:
+                printf("you don't have teh folder\n");
+                break;
+            case 2:
+                printf("BEHH! YOU CANNOT ACCESS HERE MORON!\n");
+                break;
+            default:
+                printf("random fail idk why\n");
+        }
+    }
 
     if (message.type == 'Y' || message.type == 'N') {
         unsigned char sequence = (message.type == 'Y') ? message.sequence : message.sequence - 1;
@@ -186,7 +194,7 @@ t_message receive(t_socket *connection) {
                 size++;
 
             message.type = type;
-            message.data = (char *) malloc(size);
+            message.data = (char *) calloc(size, 1);
 
             t_message next;
             unsigned int i = 0;
@@ -217,84 +225,6 @@ t_message receive(t_socket *connection) {
         connection->recv[message.sequence] = message;
         return receive(connection);
     }
-
-    /*
-    t_message packet;
-    char raw_packet[257];
-
-    printf("%d\n", check_cable(connection));
-    if (!check_cable(connection) && connection->recv[connection->window_index].begin) {
-        printf("cable\n");
-        t_message result = connection->recv[connection->window_index];
-        perform_confirmation(connection);
-
-        if (packet.type == 'A') {
-            int size;
-            char type;
-
-            memcpy(&size, packet.data, 4);
-            memcpy(&type, packet.data + 4, 1);
-
-            if (type == 'X')
-                size++;
-
-            packet.data = calloc(size, 1);
-            int i = 0;
-            t_message next;
-
-            do {
-                next = receive(connection);
-                if (next.type != type) {
-                    continue;
-                }
-                next.size -= 3;
-                memcpy(packet.data + i, next.data, next.size);
-                i += next.size;
-            } while (next.type != 'B');
-
-            packet.size = size + 3;
-            packet.type = type;
-        }
-        return result;
-    }
-
-    int n = timeoutable_recv(connection, raw_packet, 5);
-
-    if (n < 0) {
-        send_n_messages(connection, connection->queue->value.sequence);
-        return receive(connection);
-    }
-    else if (n < 5 || ((unsigned char) *raw_packet) != 126){
-        return receive(connection);
-    }
-
-    get_packet(raw_packet, &packet);
-    
-    if (packet.type == 'Y' || packet.type  == 'N') {
-        handle_confirmation(connection, packet);
-        return receive(connection);
-    }
-
-    if (get_parity(packet.data, packet.size - 3) != packet.parity) {
-        send_nack(connection, packet.sequence);
-        return receive(connection);
-    }
-    
-    connection->recv[packet.sequence] = packet;
-    
-    printf("recv\n");
-
-    return receive(connection);
-
-    // if (connection->messages_confirmation[packet.sequence])
-    //    return receive(connection);printf("confirmed %d\n", packet.sequence);
-
-
-    // if (packet.sequence < connection->window_index && packet.sequence >= (connection->window_index + connection->window_size))
-    //    return error_message(6);*/
-}
-
-void handle_confirmation(t_socket *connection, const t_message packet) {
 }
 
 unsigned char get_parity(const char *data, int size) {
@@ -335,7 +265,6 @@ void text_message(t_socket *connection, const char type, const char *message) {
 void send_confirmation(t_socket *connection, const unsigned char number, const char type) {
     t_message packet = create_message("", 0, type);
     packet.sequence = number;
-    printf("%c %d\n", type, number);
 
     char *raw_packet = generate_packet(packet);
 
@@ -352,7 +281,7 @@ void send_nack(t_socket *connection, const unsigned char number) {
 }
 
 void send_message(t_socket *connection, const t_message message) {
-    printf("send[%03d]: %c\n", message.sequence, message.type);
+    // printf("send[%03d]: %c\n", message.sequence, message.type);
     char *raw_packet = generate_packet(message);
     send_raw_data(connection, raw_packet, message.size + 2);
     free(raw_packet);

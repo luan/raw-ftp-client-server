@@ -2,8 +2,8 @@ CC=gcc
 FLAGS=-Wall -ggdb
 CLIENT_EXEC=bin/client
 SERVER_EXEC=bin/server
-CLIENT_CFILES=client/main.c client/client.c protocol/socket.c queue/queue.c
-SERVER_CFILES=server/main.c server/server.c protocol/socket.c queue/queue.c
+CLIENT_CFILES=client/main.c client/client.c protocol/socket.c queue/queue.c lib/sysutil/sysutil.c
+SERVER_CFILES=server/main.c server/server.c protocol/socket.c queue/queue.c lib/sysutil/sysutil.c
 
 all: c s
 	
