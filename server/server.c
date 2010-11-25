@@ -25,6 +25,9 @@ void respond_cd(t_socket *connection, t_message packet) {
         enqueue_message(connection, error_message(2));
     else
         enqueue_message(connection, error_message(1));
+
+    if (params != NULL)
+        free(params);
 }
 
 void respond_ls(t_socket *connection, t_message packet) {
@@ -35,5 +38,8 @@ void respond_ls(t_socket *connection, t_message packet) {
     char *output = (char *) calloc(1048576, 1);
     ls(params, output);
     text_message(connection, 'X', output);
-    free(output);
+    if (output != NULL)
+        free(output);
+    if (params != NULL)
+        free(params);
 }

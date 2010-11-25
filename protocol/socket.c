@@ -74,8 +74,8 @@ int timeoutable_recv(t_socket *connection, char *data, unsigned timeout_secs) {
     struct timeval timeout;
     fd_set rfds;
 
-    timeout.tv_sec = timeout_secs;
-    timeout.tv_usec = 0;
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 100000;
 
     FD_ZERO(&rfds);
     FD_SET(connection->socket, &rfds);
@@ -91,7 +91,7 @@ t_message create_message(const char *data, const unsigned char size, const char 
     message.begin = 126;
     message.size = size + 3;
     message.type = type;
-    message.data = (void *) malloc(size);
+    message.data = (void *) calloc(size, 1);
     memcpy(message.data, data, size);
     message.parity = get_parity(data, size);
     return message;
@@ -107,11 +107,38 @@ void enqueue_splited(t_socket *connection, const char *data, const unsigned size
     }
 }
 
-t_message error_message(unsigned char errno) {
-    return create_message((char *) &errno, 1, 'E');
+t_message error_message(unsigned char err) {
+    return create_message((char *) &err, 1, 'E');
 }
 
-t_message receive(t_socket *connection) {
+void handle_confirmation(t_socket *connection, t_message message) {
+    unsigned char sequence = (message.type == 'Y') ? message.sequence : message.sequence - 1;
+
+    if (has_element(connection->queue, sequence)) {
+        unsigned char num = 0;
+
+        t_message message;
+        do {
+            message = dequeue(&connection->queue);
+            num++;
+        } while(sequence != message.sequence);
+
+        unsigned char i;
+        t_queue *q = connection->queue;
+
+        for (i = 0; i < connection->window_size; i++) {
+            if (!q->next || !q->value.begin)
+                return;
+            q = q->next;
+        }
+
+        for (i = 0; q && i < num && q->value.begin; i++, q = q->next) {
+            send_message(connection, q->value);
+        }
+    }
+}
+
+t_message recv_message(t_socket *connection) {
     t_message message;
     char raw_packet[257];
 
@@ -130,13 +157,19 @@ t_message receive(t_socket *connection) {
             send_message(connection, q->value);
         }
 
-        return receive(connection);
+        return recv_message(connection);
     }
     else if (n < 5 || ((unsigned char) *raw_packet) != 126){
-        return receive(connection);
+        return recv_message(connection);
     }
 
     get_packet(raw_packet, &message);
+
+    return message;
+}
+
+t_message receive(t_socket *connection) {
+    t_message message = recv_message(connection);
 
     if (message.type == 'E') {
         switch ((unsigned char) *message.data) {
@@ -152,30 +185,9 @@ t_message receive(t_socket *connection) {
     }
 
     if (message.type == 'Y' || message.type == 'N') {
-        unsigned char sequence = (message.type == 'Y') ? message.sequence : message.sequence - 1;
-
-        if (has_element(connection->queue, sequence)) {
-            unsigned char num = 0;
-
-            t_message message;
-            do {
-                message = dequeue(&connection->queue);
-                num++;
-            } while(sequence != message.sequence);
-
-            unsigned char i;
-            t_queue *q = connection->queue;
-
-            for (i = 0; i < connection->window_size; i++) {
-                if (!q->next || !q->value.begin)
-                    return receive(connection);
-                q = q->next;
-            }
-
-            for (i = 0; q && i < num && q->value.begin; i++, q = q->next) {
-                send_message(connection, q->value);
-            }
-        }
+        handle_confirmation(connection, message);
+        if (message.data != NULL)
+            free(message.data);
 
         return receive(connection);
     }
@@ -202,10 +214,36 @@ t_message receive(t_socket *connection) {
             do {
                 next = receive(connection);
                 memcpy(message.data + i, next.data, next.size - 3);
+                free(next.data);
+                 /* COM ESSE FREE, DA SEG FAULT NA SEQUENCIA:
+                 * cd /home ; ls ; cd luan ; ls
+                 * SEM ELE, NAO =)
+                 */
                 i += next.size - 3;
             } while (next.type != 'B');
 
             message.data[size - 1] = '\0';
+        }
+
+        if (message.type == TYPE_PUT) {
+            FILE *fp = fopen(message.data, "wb");
+            message = receive(connection);
+            unsigned int size;
+            memcpy(&size, message.data, sizeof(unsigned long));
+
+            t_message next;
+
+            do {
+                next = receive(connection);
+                if (next.type == 'Z')
+                    break;
+                fwrite(next.data, next.size - 3, 1, fp);
+                free(next.data);
+            } while (1);
+
+            fclose(fp);
+
+            message = next;
         }
 
         return message;
@@ -250,16 +288,86 @@ void enqueue_message(t_socket *connection, t_message message) {
 void text_message(t_socket *connection, const char type, const char *message) {
     int size = strlen(message);
     if (size > 252) {
-        char *data = malloc(5);
+        char data[5];
         memcpy(data, &size, 4);
         memcpy(data + 4, &type, 1);
         enqueue_message(connection, create_message(data, sizeof(int) + 1, 'A'));
-        enqueue_splited(connection, message, size, type);
+        enqueue_splited(connection, message, size + 1, type);
         enqueue_message(connection, create_message("", 0, 'B'));
     }
     else {
-        enqueue_splited(connection, message, size, type);
+        enqueue_splited(connection, message, size + 1, type);
     }
+}
+
+int send_file(t_socket *connection, const char *filename) {
+    unsigned long size = file_size(filename);
+    enqueue_message(connection, create_message((char *) &size, sizeof(unsigned long), TYPE_FILE));
+   
+    t_message c;
+    do {
+        c = recv_message(connection);
+        if (c.type == 'N')
+            handle_confirmation(connection, c);
+    } while (c.type != 'Y' || c.type == 'E');
+
+    if (c.type == 'E') {
+        if ((unsigned char) *c.data == 3)
+            printf("not enought disk space\n");
+
+        c.type = 'Y';
+        handle_confirmation(connection, c);
+        return 0;
+    }
+
+    unsigned long total = size;
+    FILE *fp = fopen(filename, "rb");
+    while (size > MAX_FILE_QUEUE) {
+        char *r = (char *) malloc(MAX_FILE_QUEUE);
+        fread(r, 1, MAX_FILE_QUEUE, fp);
+        size -= MAX_FILE_QUEUE;
+        enqueue_splited(connection, r, MAX_FILE_QUEUE, TYPE_DATA);
+        do {
+            c = recv_message(connection);
+            handle_confirmation(connection, c);
+            double p = 100 * ((total - size) / ((double) total));
+            int pi = (int) (p * 100);
+            if (pi % 10 == 0) {
+                int i;
+                printf("\r [");
+                for (i = 0; i < p - 1; i += 2) {
+                    printf("=");
+                }
+                printf(">");
+                for (; i < 100; i += 2) {
+                    printf(" ");
+                }
+                printf("]");
+                printf("\t %.1f %%", p);
+            }
+            if (c.data != NULL)
+                free(c.data);
+        } while (!empty(connection->queue));
+        if (r != NULL)
+            free(r);
+    }
+
+    char *r = (char *) malloc(size);
+    size = 0;
+    enqueue_splited(connection, r, size, TYPE_DATA);
+    do {
+        c = recv_message(connection);
+        handle_confirmation(connection, c);
+        printf("\r %.2f", 100 * ((total - size) / ((double) total)));
+    } while (!empty(connection->queue));
+    printf("\n");
+
+    if (r != NULL)
+        free(r);
+    fclose(fp);
+    text_message(connection, TYPE_EOF, "");
+
+    return 1;
 }
 
 void send_confirmation(t_socket *connection, const unsigned char number, const char type) {
@@ -269,7 +377,8 @@ void send_confirmation(t_socket *connection, const unsigned char number, const c
     char *raw_packet = generate_packet(packet);
 
     send_raw_data(connection, raw_packet, 5);
-    free(raw_packet);
+    if (raw_packet != NULL)
+        free(raw_packet);
 }
 
 void send_ack(t_socket *connection, const unsigned char number) {
@@ -284,7 +393,8 @@ void send_message(t_socket *connection, const t_message message) {
     // printf("send[%03d]: %c\n", message.sequence, message.type);
     char *raw_packet = generate_packet(message);
     send_raw_data(connection, raw_packet, message.size + 2);
-    free(raw_packet);
+    if (raw_packet != NULL)
+        free(raw_packet);
 }
 
 void send_raw_data(t_socket *connection, const void *data, const unsigned int size) {

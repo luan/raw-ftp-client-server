@@ -17,15 +17,21 @@ int main (int argc, char const* argv[]) {
         }
 
         buffer[i] = '\0';
+        int e = request(&connection, buffer);
 
-        if (request(&connection, buffer))
+        if (e == 1) {
             response = receive(&connection); 
-        else
+            if (response.type == 'X')        
+                printf("%s\n", response.data);
+            if (response.data != NULL)
+                free(response.data);
+        }
+        else if (e == 0)
             exec_command(buffer);
 
-        if (response.type == 'X')        
-            printf("'%s'\n", response.data);
-        free(buffer);
+
+        if (buffer != NULL)
+            free(buffer);
     }
     return 0;
 }

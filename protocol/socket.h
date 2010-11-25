@@ -20,8 +20,10 @@
 #include <string.h>
 #include "protocol.h"
 #include "../queue/queue.h"
+#include "../lib/sysutil/sysutil.h"
 
 #define MESSAGE_MAX_SIZE 257
+#define MAX_FILE_QUEUE 1024
 
 typedef struct {
     int socket;
@@ -36,8 +38,11 @@ typedef struct {
 t_socket socket_create(const char* device, const unsigned char window_size);
 char *generate_packet(t_message message);
 unsigned char get_parity(const char *data, int size);
+void handle_confirmation(t_socket *connection, t_message message);
+t_message recv_message(t_socket *connection);
 t_message receive(t_socket *connection);
-t_message error_message(unsigned char errno);
+t_message error_message(unsigned char err);
+int send_file(t_socket *connection, const char *filename);
 void send_message(t_socket *connection, const t_message message);
 void send_raw_data(t_socket *connection, const void *data, const unsigned int size);
 int recv_data(t_socket *connection, char *buffer);

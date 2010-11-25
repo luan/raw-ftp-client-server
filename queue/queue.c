@@ -24,6 +24,7 @@ t_message dequeue(t_queue **q) {
     value = (*q)->value;
     t_queue *r = *q;
     *q = (*q)->next;
+    free(r->value.data);
     free(r);
     return value;
 }
