@@ -27,6 +27,10 @@ int request(t_socket *connection, const char *command) {
         request_put(connection, params);
         retval = 2;
     }
+    else if (!strcmp(cmd, "get")) {
+        request_get(connection, params);
+        retval = 2;
+    }
     else
         retval =  0;
 
@@ -86,31 +90,56 @@ void request_get(t_socket *connection, const char *params) {
     t_message c;
     do {
         c = recv_message(connection);
-        if (c.type == 'N')
+        if (c.type == TYPE_NACK)
             handle_confirmation(connection, c);
-    } while (c.type != 'Y' || c.type == 'E');
+    } while (c.type != TYPE_ACK && c.type != TYPE_ERR);
 
-    if (c.type == 'E') {
+    if (c.type == TYPE_ERR) {
         switch ((unsigned char) *c.data) {
-            case 2:
-                printf("permission denied\n");
-                break;
-            case 3:
-                printf("not enough space\n");
-                break;
             case 4:
                 printf("file not found\n");
         }
-        c.type = 'Y';
+        c.type = TYPE_ACK;
         handle_confirmation(connection, c);
         return;
     }
 
     handle_confirmation(connection, c);
-    // create file
+
     c = receive(connection);
-    // file size
-    // receive file
+    unsigned int size;
+    memcpy(&size, c.data, sizeof(unsigned long));
+    
+    if (size > free_disk_space()) {
+        printf("NO HAY ESPACITO EN LO DISCO AMIGO\n");
+        send_message(connection, error_message(3, c.sequence));
+        return;
+    }
+
+    send_ack(connection, c.sequence);
+
+    FILE *fp = fopen(params, "wb");
+    struct timeval sttime;
+    gettimeofday(&sttime, NULL);
+    unsigned starttime = sttime.tv_sec;
+
+    t_message next;
+
+    do {
+        next = receive(connection);
+        if (next.type == TYPE_EOF)
+            break;
+        print_progress(size, size - ftell(fp), starttime, 1);
+        fwrite(next.data, next.size - 3, 1, fp);
+        //free(next.data);
+    } while (1);
+
+    print_progress(size, size - ftell(fp), starttime, 1);
+    printf("\n");
+
+    fclose(fp);
+
+    free(next.data);
 }
 
 void request_put(t_socket *connection, const char *params) {
@@ -123,21 +152,21 @@ void request_put(t_socket *connection, const char *params) {
     t_message c;
     do {
         c = recv_message(connection);
-        if (c.type == 'N')
+        if (c.type == TYPE_NACK)
             handle_confirmation(connection, c);
-    } while (c.type != 'Y' || c.type == 'E');
+    } while (c.type != TYPE_ACK && c.type != TYPE_ERR);
 
-    if (c.type == 'E') {
+    if (c.type == TYPE_ERR) {
         if ((unsigned char) *c.data == 2)
             printf("permission denied\n");
 
-        c.type = 'Y';
+        c.type = TYPE_ACK;
         handle_confirmation(connection, c);
         return;
     }
 
     handle_confirmation(connection, c);
-    send_file(connection, params);
+    send_file(connection, params, 1);
 }
 
 void request_ls(t_socket *connection, const char *params) {

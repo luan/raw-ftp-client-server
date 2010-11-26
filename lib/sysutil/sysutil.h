@@ -4,6 +4,7 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -20,12 +21,14 @@
 typedef struct t_opt {
     int l;
     int a;
+    int h;
     char *path;
 } t_opt;
 
 
 int file_exists(const char *filename);
 unsigned long file_size(const char *filename);
+unsigned long long free_disk_space();
 char* get_permissions(char *octa);
 t_opt get_options(const char *cmd);
 char *strtrim(char **ptr);

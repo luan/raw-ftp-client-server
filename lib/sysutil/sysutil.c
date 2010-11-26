@@ -51,7 +51,7 @@ char* get_permissions(char *octa) {
     else if (octa[0] == '2')
         strcat(ret, "-w-");
     else if (octa[0] == '1')
-        strcat(ret, "--r");
+        strcat(ret, "--x");
     else if (octa[0] == '0')
         strcat(ret, "---");
 
@@ -68,7 +68,7 @@ char* get_permissions(char *octa) {
     else if (octa[1] == '2')
         strcat(ret, "-w-");
     else if (octa[1] == '1')
-        strcat(ret, "--r");
+        strcat(ret, "--x");
     else if (octa[1] == '0')
         strcat(ret, "---");
 
@@ -85,11 +85,20 @@ char* get_permissions(char *octa) {
     else if (octa[2] == '2')
         strcat(ret, "-w-");
     else if (octa[2] == '1')
-        strcat(ret, "--r");
+        strcat(ret, "--x");
     else if (octa[2] == '0')
         strcat(ret, "---");
 
     return ret;
+}
+
+unsigned long long free_disk_space() {
+    struct statvfs buffer;
+    char *current_path = get_current_dir_name();
+    statvfs(current_path, &buffer);
+    free(current_path);
+
+    return buffer.f_bavail * buffer.f_bsize;
 }
 
 t_opt get_options(const char *cmd) {
@@ -98,6 +107,7 @@ t_opt get_options(const char *cmd) {
 
     opt.a = 0;
     opt.l = 0;
+    opt.h = 0;
 
     while (cmd[i] != '-' && cmd[i] != '\0')
         i++;
@@ -118,17 +128,52 @@ t_opt get_options(const char *cmd) {
             opt.a = 1;
         if (cmd[i] == 'l')
             opt.l = 1;
+        if (cmd[i] == 'h')
+            opt.h = 1;
         i++;
     }
 
     return opt;
 }
 
+char *getfilesize_string(unsigned long filesize, int human) {
+    char *ret;
+    
+    if (!human) {
+        int len = 1;
+        unsigned long size = filesize;
+        while (size / 10) {
+            size /= 10;
+            len++;
+        }
+        ret = (char *) malloc(sizeof(char) * len);
+        sprintf(ret, "%ld", filesize);
+
+        return ret;
+    }
+
+    char units[] = "KMGT";
+    double size = (double) filesize;
+    int i = -1;
+    ret = (char *) malloc(sizeof(char) * 6);
+
+    while (size >= 1024) {
+        size /= 1024.0;
+        i++;
+    }
+
+    if (i >= 0)
+        sprintf(ret, "%.1lf%c", size, units[i]);
+    else
+        sprintf(ret, "%ld", filesize);
+
+    return ret;
+}
+
 int ls(const char *params, char *dest) {
     t_opt opt = get_options(params);
     DIR *dir = opendir(opt.path);
     char *current_path = get_current_dir_name();
-    chdir(opt.path);
 
     struct dirent *ent;
     struct stat buf;
@@ -138,14 +183,17 @@ int ls(const char *params, char *dest) {
     if (dir == NULL)
         return 0;
 
+    chdir(opt.path);
+
     char *acc = (char *) malloc(sizeof(char) * 6);
     char last_modify[32];
     char *perm;
+    int i;
     int is_dir;
+    int is_exec;
     int max_user = 0;
     int max_group = 0;
     int fsize_len = 1;
-    unsigned long max_filesize = 0;
 
     if (opt.l) {
         while ((ent = readdir(dir)) != NULL) {
@@ -155,8 +203,9 @@ int ls(const char *params, char *dest) {
                 pw = getpwuid(buf.st_uid);
                 gw = getgrgid(buf.st_gid);
 
-                if (buf.st_size > max_filesize)
-                    max_filesize = buf.st_size;
+                char *fsizestr = getfilesize_string(buf.st_size, opt.h);
+                if (strlen(fsizestr) > fsize_len)
+                    fsize_len = strlen(fsizestr);
 
                 if (pw && strlen(pw->pw_name) > max_user)
                     max_user = strlen(pw->pw_name);
@@ -166,12 +215,7 @@ int ls(const char *params, char *dest) {
             }
         }
 
-        while (max_filesize / 10) {
-            max_filesize /= 10;
-            fsize_len++;
-        }
-
-        dir = opendir(opt.path);
+        rewinddir(dir);
     }
 
     while ((ent = readdir(dir)) != NULL) {
@@ -182,7 +226,15 @@ int ls(const char *params, char *dest) {
 
                 perm = get_permissions(acc);
 
-                is_dir = ((int)(buf.st_mode / 4096) == 4);
+                is_dir = ((int) (buf.st_mode / 4096) == 4);
+                is_exec = 0;
+
+               for (i = 2; i < 9; i += 3) {
+                    if (perm[i] == 'x') {
+                        is_exec = 1;
+                        break;
+                    }
+                }
 
                 pw = getpwuid(buf.st_uid);
                 gw = getgrgid(buf.st_gid);
@@ -192,7 +244,8 @@ int ls(const char *params, char *dest) {
                 strcpy(last_modify, tmp);
 
                 char format[64];
-                sprintf(format, "%%9s %%-%d%c %%-%d%c %%%dld %%17s %%-25s\n", max_user,
+                char *fsizestr = getfilesize_string(buf.st_size, opt.h);
+                sprintf(format, "%%9s %%-%d%c %%-%d%c %%%ds %%17s ", max_user,
                         (pw) ? 's' : 'd', max_group,
                         (gw) ? 's' : 'd', fsize_len);
 
@@ -204,39 +257,54 @@ int ls(const char *params, char *dest) {
                 sprintf(dest + strlen(dest), format, perm, 
                         (pw) ? (char *) pw->pw_name : (char *) buf.st_uid, 
                         (gw) ? (char *) gw->gr_name : (char *) buf.st_gid,
-                        buf.st_size, last_modify, ent->d_name);
+                        fsizestr, last_modify);
+
+                if (is_dir)
+                    sprintf(dest + strlen(dest), "\033[1;34m");
+                else if (is_exec)
+                    sprintf(dest + strlen(dest), "\033[1;32m");
+
+                sprintf(dest + strlen(dest), "%s", ent->d_name);
+
+                if (is_dir || is_exec)
+                    sprintf(dest + strlen(dest), "\033[0m");
+                sprintf(dest + strlen(dest), "\n");
             }
         }
         else if (!opt.l) {
             if (!((ent->d_name[0] == '.') && !opt.a)) {
-                sprintf(dest + strlen(dest), "%s\n", ent->d_name);
+                stat(ent->d_name, &buf);
+                is_dir = ((int) (buf.st_mode / 4096) == 4);
+                is_exec = 0;
+                sprintf(acc, "%o", buf.st_mode % 4096);
+                perm = get_permissions(acc);
+
+                for (i = 2; i < 9; i += 3) {
+                    if (perm[i] == 'x') {
+                        is_exec = 1;
+                        break;
+                    }
+                }
+
+                if (is_dir)
+                    sprintf(dest + strlen(dest), "\033[1;34m");
+                else if (is_exec)
+                    sprintf(dest + strlen(dest), "\033[1;32m");
+
+                sprintf(dest + strlen(dest), "%s", ent->d_name);
+
+                if (is_dir || is_exec)
+                    sprintf(dest + strlen(dest), "\033[0m");
+
+                sprintf(dest + strlen(dest), "\n");
             }
         }
     }
 
     closedir(dir);
     chdir(current_path);
-    if (current_path != NULL)
-        free(current_path);
+    free(current_path);
     return 1;
-    /*
-       char *cmd = (char *) malloc(sizeof(char) * (strlen(params) + 9));
-       sprintf(cmd, "ls %s > .l", params);
-       int retval = system(cmd);
-       free(cmd);
-
-       FILE *fp = fopen(".l", "r");
-       char c;
-       unsigned count = 0;
-
-       while ((c = fgetc(fp)) != EOF) {
-       count++;
-       sprintf(dest, "%s%c", dest, c);
-       }
-
-       fclose(fp);
-       system("rm -f .l");
-       return retval;*/
 }
 
 int cd(const char *params) {

@@ -14,6 +14,7 @@ void enqueue(t_queue *q, const t_message value);
 t_message dequeue(t_queue **q);
 unsigned char dequeue_until(t_queue **q, unsigned char sequence);
 int has_element(t_queue *q, unsigned char sequence);
+t_message get_element(t_queue *q, unsigned char sequence);
 int queue_size(t_queue *q);
 int empty(t_queue *q);
 #endif

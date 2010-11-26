@@ -32,10 +32,24 @@ t_message dequeue(t_queue **q) {
 int has_element(t_queue *q, unsigned char sequence) {
     t_queue *e;
     int i = 0;
-    for (e = q; e && e->value.begin != 0; e = e->next, i++)
+    for (e = q; e->value.begin != 0; e = e->next, i++)
         if (e->value.sequence == sequence)
             return 1;
     return 0;
+}
+
+t_message get_element(t_queue *q, unsigned char sequence) {
+    t_queue *e;
+    t_message r;
+    r.begin = 0;
+    int i = 0;
+    for (e = q; e->value.begin != 0; e = e->next, i++)
+        printf("curr: %d\n", e->value.sequence);
+        if (e->value.sequence == sequence) {
+            printf("achei a bigorna\n");
+            return e->value;
+        }
+    return r;
 }
 
 unsigned char dequeue_until(t_queue **q, unsigned char sequence) {
@@ -55,6 +69,7 @@ unsigned char dequeue_until(t_queue **q, unsigned char sequence) {
 int queue_size(t_queue *q) {
     t_queue *e;
     int i = 0;
+
     for (e = q; e && e->value.begin != 0; e = e->next, i++);
     return --i;
 }

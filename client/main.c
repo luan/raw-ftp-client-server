@@ -2,7 +2,7 @@
 #include <stdio.h>
 
 int main (int argc, char const* argv[]) {
-    t_socket connection = socket_create("eth0", 10);
+    t_socket connection = socket_create("eth0", 5);
     t_message response;
 
     while (1) {

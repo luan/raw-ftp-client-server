@@ -36,5 +36,10 @@ typedef struct {
 #define   TYPE_FILE   'F'
 #define   TYPE_DATA   'D'
 #define   TYPE_EOF    'Z'
+#define   TYPE_ACK    'Y'
+#define   TYPE_NACK   'N'
+#define   TYPE_SCREEN 'X'
+#define   TYPE_START  'A'
+#define   TYPE_END    'B'
 
 #endif
