@@ -15,8 +15,8 @@ int request(t_socket *connection, const char *command) {
         while (command[i] != '\0')
             params[j++] = command[i++];
 
-    char *initial_cmd = strtrim(&cmd);
-    char *initial_params = strtrim(&params);
+    /*char *initial_cmd = */strtrim(&cmd);
+    /*char *initial_params = */strtrim(&params);
     int retval = 1;
 
     if (!strcmp(cmd, "ls"))
@@ -34,8 +34,8 @@ int request(t_socket *connection, const char *command) {
     else
         retval =  0;
 
-    free(initial_cmd);
-    free(initial_params);
+    // free(initial_cmd);
+    // free(initial_params);
     return retval;
 }
 
@@ -54,8 +54,8 @@ void exec_command(const char * command) {
         while (command[i] != '\0')
             params[j++] = command[i++];
     
-    char *initial_cmd = strtrim(&cmd);
-    char *initial_params = strtrim(&params);
+    /*char *initial_cmd = */strtrim(&cmd);
+    /*char *initial_params = */strtrim(&params);
 
     if (!strcmp(cmd, "lls"))
         exec_ls(params);
@@ -64,16 +64,15 @@ void exec_command(const char * command) {
     else
         printf("invalid command\n");
 
-    free(initial_params);
-    free(initial_cmd);
+    // free(initial_params);
+    // free(initial_cmd);
 }
 
 void exec_ls(const char *params) {
     char *output = (char *) calloc(1048576, 1);
     ls(params, output);
     printf("%s\n", output);
-    if (output != NULL)
-        free(output);
+    // free(output);
 }
 
 void exec_cd(const char *params) {
@@ -107,12 +106,19 @@ void request_get(t_socket *connection, const char *params) {
     handle_confirmation(connection, c);
 
     c = receive(connection);
+
+    if (c.type != TYPE_FILE) {
+        printf("file not found\n");
+        return;
+    }        
+
     unsigned int size;
     memcpy(&size, c.data, sizeof(unsigned long));
     
     if (size > free_disk_space()) {
         printf("NO HAY ESPACITO EN LO DISCO AMIGO\n");
         send_message(connection, error_message(3, c.sequence));
+        connection->window_index = c.sequence + 1;
         return;
     }
 
@@ -129,16 +135,21 @@ void request_get(t_socket *connection, const char *params) {
         next = receive(connection);
         if (next.type == TYPE_EOF)
             break;
-        print_progress(size, size - ftell(fp), starttime, 1);
-        fwrite(next.data, next.size - 3, 1, fp);
-        //free(next.data);
+        if (next.type == TYPE_DATA) {
+            print_progress(size, size - ftell(fp), starttime, 1);
+            fwrite(next.data, next.size - 3, 1, fp);
+            free(next.data);
+        }
+        else {
+            printf("transfer error\n");
+            return;
+        }
     } while (1);
 
     print_progress(size, size - ftell(fp), starttime, 1);
     printf("\n");
 
     fclose(fp);
-
     free(next.data);
 }
 

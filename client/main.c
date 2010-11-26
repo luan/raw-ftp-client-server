@@ -23,15 +23,12 @@ int main (int argc, char const* argv[]) {
             response = receive(&connection); 
             if (response.type == 'X')        
                 printf("%s\n", response.data);
-            if (response.data != NULL)
-                free(response.data);
+            // free(response.data);
         }
         else if (e == 0)
             exec_command(buffer);
 
-
-        if (buffer != NULL)
-            free(buffer);
+        // free(buffer);
     }
     return 0;
 }

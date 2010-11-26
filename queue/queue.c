@@ -43,12 +43,10 @@ t_message get_element(t_queue *q, unsigned char sequence) {
     t_message r;
     r.begin = 0;
     int i = 0;
-    for (e = q; e->value.begin != 0; e = e->next, i++)
-        printf("curr: %d\n", e->value.sequence);
-        if (e->value.sequence == sequence) {
-            printf("achei a bigorna\n");
-            return e->value;
-        }
+    for (e = q; e->value.begin != 0; e = e->next, i++);
+    if (e->value.sequence == sequence)
+        return e->value;
+
     return r;
 }
 

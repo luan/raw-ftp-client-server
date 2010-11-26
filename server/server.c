@@ -54,6 +54,7 @@ void respond_put(t_socket *connection, t_message packet) {
     memcpy(&size, message.data, sizeof(unsigned long));
 
     if (size > free_disk_space()) {
+        connection->window_index = message.sequence + 1;
         send_message(connection, error_message(3, message.sequence));
         return;
     }
@@ -68,13 +69,13 @@ void respond_put(t_socket *connection, t_message packet) {
         next = receive(connection);
         if (next.type == TYPE_EOF)
             break;
-        fwrite(next.data, next.size - 3, 1, fp);
-        //free(next.data);
+        if (next.type == TYPE_DATA) {
+            fwrite(next.data, next.size - 3, 1, fp);
+            free(next.data);
+        }
     } while (1);
 
     fclose(fp);
-
-    message = next;
 }
 
 void respond_get(t_socket *connection, t_message packet) {
@@ -83,7 +84,8 @@ void respond_get(t_socket *connection, t_message packet) {
     params[packet.size - 3] = '\0';
 
     if (!file_exists(params)) {
-        send_message(connection, error_message(4, packet.size));
+        connection->window_index = packet.sequence + 1;
+        send_message(connection, error_message(4, packet.sequence));
         return;
     }
 

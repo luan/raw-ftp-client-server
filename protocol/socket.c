@@ -117,10 +117,8 @@ void handle_confirmation(t_socket *connection, t_message message) {
     unsigned char sequence = message.sequence;
  
     if (message.type == TYPE_NACK) {
-        printf("recv nack %d | %d\n", message.sequence, connection->queue->value.sequence);
         t_message r = get_element(connection->queue, message.sequence);
         if (r.begin) {
-            printf("re-sending %d\n", r.sequence);
             send_message(connection, r);
         }
         return;
@@ -156,7 +154,9 @@ t_message recv_message(t_socket *connection) {
 
     if (connection->recv[connection->window_index].begin) {
         t_message m = connection->recv[connection->window_index];
-        return m;
+        if (m.parity != get_parity(m.data, m.size - 3)) {
+            connection->recv[connection->window_index].begin = 0;
+        }
     }
 
     int n = -1;
@@ -175,10 +175,6 @@ t_message recv_message(t_socket *connection) {
             n = -1;
         else {
             get_packet(raw_packet, &message);
-            if (message.parity != get_parity(message.data, message.size - 3)) {
-                free(message.data);
-                n = -1;
-            }
         }
     }
 
@@ -207,6 +203,10 @@ void recalculate_window(t_socket *connection) {
 t_message receive(t_socket *connection) {
     t_message message = recv_message(connection);
 
+    while (message.parity != get_parity(message.data, message.size - 3)) {
+        message = recv_message(connection);
+    }
+
     if (message.type == TYPE_ERR) {
         switch ((unsigned char) *message.data) {
             case 1:
@@ -216,7 +216,7 @@ t_message receive(t_socket *connection) {
                 printf("BEHH! YOU CANNOT ACCESS HERE MORON!\n");
                 break;
             default:
-                printf("random fail idk why\n");
+                send_ack(connection, message.sequence);
         }
     }
 
@@ -232,6 +232,8 @@ t_message receive(t_socket *connection) {
     if (message.sequence <= connection->window_index) {
         if (message.type != TYPE_GET && message.type != TYPE_FILE)
             send_ack(connection, message.sequence);
+        if (connection->recv[message.sequence].begin)
+            return receive(connection);
 
         if (message.type == TYPE_START) {
             char type;
@@ -263,7 +265,7 @@ t_message receive(t_socket *connection) {
     else {
         unsigned char i;
         
-        for (i = 0; i < connection->window_size; i++) {
+        for (i = 0; i < (255 - connection->window_index); i++) {
             unsigned char index = connection->window_index + i;
 
             if (!connection->recv[index].begin) {
@@ -272,7 +274,8 @@ t_message receive(t_socket *connection) {
             }
         }
 
-        connection->recv[message.sequence] = message;
+        if (connection->recv[message.sequence].begin == 0)
+            connection->recv[message.sequence] = message;
         return receive(connection);
     }
 }
@@ -379,7 +382,7 @@ int send_file(t_socket *connection, const char *filename, int progress_bar) {
                 c = recv_message(connection);
                 if (c.type == TYPE_NACK)
                     handle_confirmation(connection, c);
-            } while (c.type != TYPE_ACK && c.type != TYPE_ERR);
+            } while (c.type != TYPE_ACK);
             handle_confirmation(connection, c);
             if (progress_bar)
                 print_progress(total, size, starttime, 0);
@@ -393,10 +396,15 @@ int send_file(t_socket *connection, const char *filename, int progress_bar) {
     enqueue_splited(connection, r, size, TYPE_DATA);
     size = 0;
     do {
-        c = recv_message(connection);
-        handle_confirmation(connection, c);
-        if (progress_bar)
-            print_progress(total, size, starttime, 0);
+            do {
+                c = recv_message(connection);
+                if (c.type == TYPE_NACK)
+                    handle_confirmation(connection, c);
+            } while (c.type != TYPE_ACK);
+            handle_confirmation(connection, c);
+            if (progress_bar)
+                print_progress(total, size, starttime, 0);
+            free(c.data);
     } while (!empty(connection->queue));
 
     if (progress_bar)
@@ -414,6 +422,7 @@ void send_confirmation(t_socket *connection, const unsigned char number, const c
     packet.sequence = number;
 
     char *raw_packet = generate_packet(packet);
+    connection->recv[number].begin = 0;
 
     send_raw_data(connection, raw_packet, 5);
     free(raw_packet);
@@ -421,19 +430,15 @@ void send_confirmation(t_socket *connection, const unsigned char number, const c
 
 void send_ack(t_socket *connection, const unsigned char number) {
     connection->window_index = number + 1;
-    connection->recv[number].begin = 0;
     send_confirmation(connection, number, TYPE_ACK);
 }
 
 void send_nack(t_socket *connection, const unsigned char number) {
     send_confirmation(connection, number, TYPE_NACK);
-    printf("nack: %d\n", number);
 }
 
 void send_message(t_socket *connection, const t_message message) {
     recalculate_window(connection);
-
-    // printf("send[%d]: %c\n", message.sequence, message.type);
 
     char *raw_packet = generate_packet(message);
     send_raw_data(connection, raw_packet, message.size + 2);
